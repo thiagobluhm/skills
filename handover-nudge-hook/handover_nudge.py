@@ -175,6 +175,28 @@ def main():
     if not transcript or not os.path.exists(transcript):
         return
 
+    event = data.get("hook_event_name") or ""
+
+    # --- Observador PreCompact (LOG-ONLY, nunca bloqueia, sem stdout) ---
+    # Instrumentacao para decidir "com dado" se a ponte bloqueante (PreCompact/auto)
+    # vale a pena: registra o tamanho da conversa QUANDO a compactacao disparou e se o
+    # usuario ja tinha sido avisado. Se o auto-compact costuma nos pegar ANTES de um
+    # nudge aceito, a rede final se justifica; senao, o UserPromptSubmit basta.
+    if event == "PreCompact":
+        b, c, _ = read_baseline_current(transcript)
+        st = load_state(sid)
+        log_event({
+            "ts": int(time.time()),
+            "session_id": sid,
+            "event": "precompact_fired",
+            "trigger": data.get("trigger"),  # "auto" | "manual"
+            "growth": (c - b) if (b is not None and c is not None) else None,
+            "total": c,
+            "already_nudged_level": int(st.get("last_level", 0) or 0),
+            "silenced": bool(st.get("silenced")),
+        })
+        return  # NUNCA escreve stdout nem bloqueia (exit 0)
+
     threshold, step = load_config()
     baseline, current, model = read_baseline_current(transcript)
     if baseline is None or current is None:

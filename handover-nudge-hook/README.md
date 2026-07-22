@@ -55,15 +55,29 @@ e `SessionStart` — por isso é este o evento. Mas ele roda **antes** de cada p
   apaga o prompt que você digitou**. Este script é *fail-open absoluto*: qualquer erro
   sai 0 silencioso. Um bug no medidor jamais pode engolir o seu prompt.
 
-## Rede de segurança final (roadmap): `PreCompact/auto`
+## `PreCompact`: observador agora, ponte bloqueante depois
 
-O `UserPromptSubmit` avisa **cedo** (por limiar). Falta a **última chamada**: o evento
-`PreCompact` dispara antes da compactação de contexto e, com matcher `auto`, intercepta
-o momento exato em que o *autocompact* — o concorrente real do handover — ia comprimir
-sem você escolher o quê. `PreCompact` pode inclusive **bloquear** a compactação (exit 2).
-Combinar os dois cobre "avisei cedo" + "última chamada antes da perda". Ainda não
-incluído aqui porque o stdout de `PreCompact` **não** é canal visível (ver acima) — o
-aviso teria de vir por uma ponte via marca de estado + o próximo `UserPromptSubmit`.
+O `UserPromptSubmit` avisa **cedo** (por limiar que você controla). O evento `PreCompact`
+é a outra ponta: dispara **tarde**, no momento em que a compactação de contexto vai
+rodar de fato — o `auto` é o *autocompact*, concorrente real do handover. Esse gatilho
+**não é manipulável** (é o limite real da janela, não um número nosso); e o stdout de
+`PreCompact` **não** é canal visível (só os 3 eventos acima injetam contexto).
+
+Por isso ele entra em **duas fases**:
+
+- **Fase 1 — observador (INCLUÍDO).** Um handler `PreCompact` *log-only* que **nunca
+  bloqueia** e **nunca** escreve stdout. Ele só registra, quando a compactação dispara:
+  o `growth` naquele instante, o `trigger` (`auto`/`manual`) e se o usuário **já** tinha
+  sido avisado (`already_nudged_level`). É a instrumentação que decide, **com dado**, se
+  a fase 2 vale a pena: *o autocompact costuma nos pegar antes de um nudge aceito?*
+- **Fase 2 — ponte bloqueante (roadmap).** Se o log da fase 1 provar que sim, aí
+  `PreCompact/auto` **bloqueia** a compactação (exit 2) e grava uma marca; o próximo
+  `UserPromptSubmit` lê a marca e injeta o aviso factual "o autocompact foi adiado".
+  Só entra com dado — não por elegância.
+
+> Nota de escala: numa janela de contexto grande (ex.: 1M tokens), o autocompact dispara
+> tão tarde que o `UserPromptSubmit` (limiar de 80k) faz quase todo o trabalho. O
+> observador existe justamente para **medir** se essa hipótese se confirma na sua rotina.
 
 ## Calibragem honesta (n=1)
 
