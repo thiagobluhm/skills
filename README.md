@@ -1,6 +1,6 @@
-# 🪙 skills — Token Economy for Claude Code
+# 🪙 O(1)mem — Token Economy for Claude Code
 
-### Duas skills para parar de pagar pedágio de contexto a cada sessão
+### A cada nova sessão aberta após o `/clear`, você retoma o fio pelo índice — não re-paga a conversa arrastada
 🇧🇷 Made in Brazil
 
 ---
@@ -10,12 +10,13 @@
 ![focus](https://img.shields.io/badge/focus-token%20economy-brightgreen)
 ![approach](https://img.shields.io/badge/chunking-agentic-blue)
 ![lang](https://img.shields.io/badge/docs-pt--BR-yellow)
+![license](https://img.shields.io/badge/license-MIT-green)
 
 <p align="center">
-  <img src="assets/ciclo-token-economy-header-v7.jpg" alt="O(1)memo, o mascote, conduz o ciclo: gatilho + entrada + faxina — o hook avisa, o handover destila e capa, o organizador-mem reorganiza. Sessão crescendo --/handover--> HANDOVER_*.md + MEMORY.md --/clear--> Sessão NOVA (lê a linha RETOMADA, abre o handover) --> Retomada no modo gravado (rapida ou verificada). Gatilho (hook): UserPromptSubmit avisa em +80k, PreCompact(auto) é a última chamada. Casos reais medidos na mesma máquina: sessão 160.3k->33.5k tokens após /handover+/clear; retomada ~19.5k vs 124.8k arrastados (~84% menos); CLAUDE.md ~1589->~150 linhas de núcleo (teto ~90% por sessão, média menor com p~0.50 de abertura de satélite); índice 9.1k->6.7k tokens, estável, O(n)->O(1)." width="100%">
+  <img src="assets/ciclo-token-economy-header-v7.jpg" alt="O ciclo: gatilho + entrada + faxina — o hook avisa, o handover destila e capa, o organizador-mem reorganiza. Sessão crescendo --/handover--> HANDOVER_*.md + MEMORY.md --/clear--> Sessão NOVA (lê a linha RETOMADA, abre o handover) --> Retomada no modo gravado (rapida ou verificada). Gatilho (hook): UserPromptSubmit avisa em +80k, PreCompact(auto) é a última chamada. Casos reais medidos na mesma máquina: sessão 160.3k->33.5k tokens após /handover+/clear; retomada ~19.5k vs 124.8k arrastados (~84% menos); CLAUDE.md ~1589->~150 linhas de núcleo (teto ~90% por sessão, média menor com p~0.50 de abertura de satélite); índice 9.1k->6.7k tokens, estável, O(n)->O(1)." width="100%">
 </p>
 
-<p align="center"><sub>👆 este é o <b>O(1)memo</b> — o mascote do repo. O nome é a tese: <code>O(1)</code> (a memória cresce em tempo constante, graças ao <em>cap</em>) + <code>memo</code> (memória). Ele avisa, destila e capa pra você não re-pagar pedágio de contexto.</sub></p>
+<p align="center"><sub><b>O(1)mem</b> — o nome é a tese: <code>O(1)</code> (com o <em>cap</em>, a memória cresce em tempo constante) + <code>mem</code> (memória). Simples por design.</sub></p>
 
 ---
 
