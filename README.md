@@ -12,7 +12,7 @@
 ![lang](https://img.shields.io/badge/docs-pt--BR-yellow)
 
 <p align="center">
-  <img src="assets/ciclo-token-economy-header-v4.jpg" alt="O ciclo: gatilho + entrada + faxina — o hook avisa, o handover destila e capa, o organizador-mem reorganiza. Sessão crescendo --/handover--> HANDOVER_*.md + MEMORY.md --/clear--> Sessão NOVA (lê a linha RETOMADA, abre o handover) --> Retomada no modo gravado (rapida ou verificada). Gatilho (hook): UserPromptSubmit avisa em +80k, PreCompact(auto) é a última chamada. Casos reais medidos na mesma máquina: sessão 160.3k->33.5k tokens após /handover+/clear; retomada ~19.5k vs 124.8k arrastados (~84% menos); CLAUDE.md ~1589->~150 linhas de núcleo (~90%); índice 9.1k->6.7k tokens, estável, O(n)->O(1)." width="100%">
+  <img src="assets/ciclo-token-economy-header-v5.jpg" alt="O ciclo: gatilho + entrada + faxina — o hook avisa, o handover destila e capa, o organizador-mem reorganiza. Sessão crescendo --/handover--> HANDOVER_*.md + MEMORY.md --/clear--> Sessão NOVA (lê a linha RETOMADA, abre o handover) --> Retomada no modo gravado (rapida ou verificada). Gatilho (hook): UserPromptSubmit avisa em +80k, PreCompact(auto) é a última chamada. Casos reais medidos na mesma máquina: sessão 160.3k->33.5k tokens após /handover+/clear; retomada ~19.5k vs 124.8k arrastados (~84% menos); CLAUDE.md ~1589->~150 linhas de núcleo (teto ~90% por sessão, média menor com p~0.50 de abertura de satélite); índice 9.1k->6.7k tokens, estável, O(n)->O(1)." width="100%">
 </p>
 
 ---
@@ -54,6 +54,8 @@ Toda sessão do Claude Code paga pedágio: reler os arquivos de instrução do p
 | `CLAUDE.md` ~1589 linhas lidas/sessão | ~150 linhas de núcleo + mapa | **~90%** |
 
 Faixa típica que eu esperaria: **60–90%**, quando a maior parte do arquivo é tópico-específica.
+
+> ⚖️ **Leia esse `~90%` como teto, não média — e aqui está o porquê honesto.** Esta skill não *apaga* token pago (isso é o `handover`, abaixo); ela **difere** o custo: o satélite só é lido quando a tarefa o toca. O ganho por sessão vale `~90%` integral **só na sessão que não abre satélite nenhum**. Quando abre, você re-paga aquele satélite, e a economia real vira `Σ(1−pᵢ)·custo_satéliteᵢ − custo_do_mapa`, onde `pᵢ` é a taxa com que cada satélite é aberto. **No meu projeto eu medi `p≈0,50`** (cerca de metade das sessões abre ao menos um satélite de regra) — então a **média** fica materialmente abaixo do teto. Dois corolários: se `p` for alto, o ganho colapsa (você quase sempre paga o satélite mesmo); se você fatiar demais, o custo fixo do mapa pode comer a economia — por isso a skill **pergunta antes de cortar**. O que **não** depende de `p` é a *descoberta*: o mapa garante que você sempre sabe que a regra existe e onde está. Isso é ganho **qualitativo** (aderência), não de token — e é honestamente a metade mais valiosa.
 
 **A intuição, em uma frase:** *nem toda regra é sempre relevante.* Princípios inegociáveis são núcleo — todo turno. A lei de um subsistema só importa quando você mexe nele. O mapa preserva a *descoberta* ("existe uma regra sobre X, abra tal doc") sem pagar o *conteúdo* até precisar.
 
