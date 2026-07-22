@@ -12,7 +12,7 @@
 ![lang](https://img.shields.io/badge/docs-pt--BR-yellow)
 
 <p align="center">
-  <img src="assets/ciclo-token-economy.png" alt="O ciclo: entrada capada + faxina agêntica — handover alimenta a memória; organizador-mem a reorganiza quando incha. Sessão inchada --/handover--> HANDOVER_*.md + MEMORY.md --/clear--> Sessão NOVA --> Retomada no modo gravado. Casos reais: CLAUDE.md ~1589->~150 linhas (~90%); índice de memória 96->65 linhas (~32%, O(n)->O(1))." width="100%">
+  <img src="assets/ciclo-token-economy.png" alt="O ciclo: entrada + faxina agêntica — handover alimenta a memória; organizador-mem a reorganiza quando incha. Sessão inchada --/handover--> HANDOVER_*.md + MEMORY.md --/clear--> Sessão NOVA --> Retomada no modo gravado. Casos reais: CLAUDE.md ~1589->~150 linhas (~90%); índice de memória 96->65 linhas (~32%, O(n)->O(1))." width="100%">
 </p>
 
 ---
@@ -23,8 +23,9 @@
 
 - `organizador-mem` — **enxuga** um arquivo de contexto grande (`CLAUDE.md`, memória) separando o que é sempre-relevante do que é sob-demanda.
 - `handover` — **estanca** a perda de fio ao dar `/clear`, destilando a sessão em 3 camadas de custo + um cap que impede a memória de inflar de novo.
+- `handover-nudge-hook` — **avisa a hora** de dar o `/handover`, medindo o crescimento da conversa a cada turno (com trava de valor e rota de silêncio embutidas).
 
-👉 Uma faz a faxina. A outra impede que suje de novo. Juntas fecham o ciclo.
+👉 Uma faz a faxina. A outra impede que suje de novo. O hook avisa a hora. Juntos fecham o ciclo.
 
 ---
 
@@ -97,6 +98,45 @@ Aqui está a parte que eu demorei a enxergar: `handover` **alimenta** a memória
 
 ---
 
+## ⏰ `handover-nudge-hook` — *quando* disparar
+
+As duas skills resolvem o **como** estancar e limpar. Faltava o **quando** — e "quando" é justo o que a gente esquece no meio de uma tarefa boa. Este hook (`UserPromptSubmit`) mede o **crescimento da conversa** a cada turno e, ao cruzar um limiar, **sugere** um `/handover`.
+
+O número que ele observa **não** é o total da janela — `system`, `tools`, `memória` e `skills` são ~fixos, não é isso que o handover economiza. Ele mede **`total_atual − baseline_da_sessão`**: o custo de re-pagar a *conversa* ao arrastá-la para frente. É esse delta que dispara.
+
+Duas travas o impedem de virar spam:
+
+- **Trava de valor.** Ele não manda "abra um handover" — manda *aplicar o Passo 0 primeiro*. Exploração descartável sem estado durável recebe *"aqui basta memória"*, **nunca** um handover vazio com timestamp.
+- **Rota de silêncio.** A oferta é um `AskUserQuestion` com *preparar / agora não / **silenciar nesta sessão***, sem repetir entre níveis — o antídoto da fadiga de alerta, que mataria o mecanismo.
+
+Limiar **configurável** (default 80k — `n=1`, ordem de grandeza) e cada aviso vai pro log, pra você calibrar **com dado** em 10–15 sessões. Instalação e detalhes em [`handover-nudge-hook/`](handover-nudge-hook/).
+
+---
+
+## 📊 Evidência (uma sessão real)
+
+O ciclo inteiro medido no painel *Context usage* do Claude Code — os três momentos de uma mesma tarefa (rodapés anonimizados de propósito):
+
+<p align="center">
+  <img src="assets/evidencia-1-antes-160k.png" alt="Antes: janela em 160.3k, Messages 124.8k" width="32%">
+  <img src="assets/evidencia-2-posclear-33k.png" alt="Depois do /clear: janela em 33.5k, Messages 137" width="32%">
+  <img src="assets/evidencia-3-posretomada-52k.png" alt="Depois da retomada: janela em 52.7k, Messages 19.5k" width="32%">
+</p>
+
+| | 1 · Sessão inchada | 2 · Depois do `/clear` | 3 · Depois da retomada |
+|---|---|---|---|
+| **Total da janela** | 160.3k | 33.5k | 52.7k |
+| **`Messages` (a conversa)** | **124.8k** | 137 | **19.5k** |
+| **`MEMORY.md` (índice)** | 9.1k | 6.7k | 6.7k |
+
+**A manchete não é o total — é a conversa.** Retomar o fio custou **19.5k** de `Messages` contra os **124.8k** que a sessão inchada carregava: o estado voltou por **~16% do custo** de arrastar a conversa (**~84% de desconto**). Não é "economizei tokens" — é recuperar o estado de uma sessão de 124k **pagando 19k**.
+
+**E o imposto permanente também caiu:** o índice de memória saiu de **9.1k → 6.7k** por sessão (−26%) e o *cap* o mantém estável — você não re-paga esse delta a cada `/clear`. Multiplicado pelas suas sessões, é o ganho composto do sistema.
+
+> Números de **uma** sessão observada — ordem de grandeza, não promessa. É exatamente para transformar isto em calibragem que o `handover-nudge-hook` loga cada evento.
+
+---
+
 ## 🚀 Como usar
 
 Estrutura do repositório:
@@ -105,11 +145,15 @@ Estrutura do repositório:
 skills/
 ├── organizador-mem/
 │   └── SKILL.md
-└── handover/
-    └── SKILL.md
+├── handover/
+│   └── SKILL.md
+└── handover-nudge-hook/        # não é skill — é um hook UserPromptSubmit
+    ├── handover_nudge.py
+    ├── handover-nudge.config.json
+    └── README.md
 ```
 
-Instalação: copie cada pasta para o diretório de skills que o seu setup lê — tipicamente `.claude/skills/` no projeto, ou o diretório global.
+Instalação das **skills**: copie cada pasta para o diretório de skills que o seu setup lê — tipicamente `.claude/skills/` no projeto, ou o diretório global. O **hook** se instala diferente (é um `UserPromptSubmit` no `settings.json`) — ver [`handover-nudge-hook/README.md`](handover-nudge-hook/README.md).
 
 ```bash
 git clone <este-repo> && cp -r skills/organizador-mem skills/handover <seu-projeto>/.claude/skills/
