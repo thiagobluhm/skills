@@ -1,6 +1,6 @@
 ---
 name: handover
-description: Prepara a saída LIMPA de uma sessão que inchou com uma TAREFA AINDA NÃO CONCLUÍDA, para um /clear sem perder o fio. Escreve UM documento enxuto e SELETIVO em documentacao/ (só o que git+código+memória NÃO contam - porquê das decisões, estado pendente, próximo passo exato, riscos), atualiza o breadcrumb na memória (linha RETOMADA + 1 project_*) e libera o /clear. O handover declara seu MODO DE RETOMADA - "rapida" (próximo passo não toca runtime - decisão, edição, análise; a retomada confia no escrito e fecha com "PRONTO E OPERANTE THIAGO!") ou "verificada" (próximo passo MEXE NO RUNTIME - gate contra backend de pé, deploy de diff, env flag, store/processo; o handover inclui "Caveat de estado vivo" e a retomada REVERIFICA o runtime ANTES de afirmar ou agir, porque a memória diz o que era verdade quando foi escrita, não o estado presente). Use para qualquer saída de sessão inacabada. NÃO use se a tarefa está concluída e verificada (aí basta memória).
+description: Prepara a saída LIMPA de uma sessão que inchou com uma TAREFA AINDA NÃO CONCLUÍDA, para um /clear sem perder o fio. Escreve UM documento enxuto e SELETIVO em documentacao/ (só o que git+código+memória NÃO contam - porquê das decisões, estado pendente, próximo passo exato, riscos), atualiza o breadcrumb na memória (linha RETOMADA + 1 project_*) e libera o /clear. O handover declara seu MODO DE RETOMADA - "rapida" (próximo passo não toca runtime - decisão, edição, análise; a retomada confia no escrito e fecha com "PRONTO E OPERANTE!") ou "verificada" (próximo passo MEXE NO RUNTIME - gate contra backend de pé, deploy de diff, env flag, store/processo; o handover inclui "Caveat de estado vivo" e a retomada REVERIFICA o runtime ANTES de afirmar ou agir, porque a memória diz o que era verdade quando foi escrita, não o estado presente). Use para qualquer saída de sessão inacabada. NÃO use se a tarefa está concluída e verificada (aí basta memória).
 ---
 
 Você vai preparar a **saída limpa** de uma sessão: destilar o estado de uma tarefa inacabada em artefatos duráveis para que uma sessão NOVA retome sem reexplicação. Esta skill tem **um fluxo com dois modos de retomada** — a decisão do modo é interna (Passo 0.5) e fica **gravada no próprio handover**, não na sua memória.
@@ -99,12 +99,14 @@ Quando voltar (usuário pede "retomar", "voltar para o handover"):
 2. Leia o handover inteiro e **cheque a linha `retomada:`** na primeira linha.
 3. **REGRA DE PROMOÇÃO (vale sempre, antes de seguir o modo escrito):** se o próximo passo — como está escrito OU como evoluiu desde a escrita — envolve agir sobre runtime, trate como `verificada` **mesmo que o arquivo diga `rapida`**. Promoção é sempre permitida; rebaixamento nunca (se o arquivo diz `verificada`, a retomada verifica, ponto).
 
+> A **assinatura de fechamento** (`PRONTO E OPERANTE!`) é um toque pessoal e um sinal inequívoco de "terminei o protocolo". Personalize à vontade — inclua seu nome, troque a frase — desde que a retomada sempre feche com a MESMA assinatura, para o sinal ser reconhecível.
+
 **Se `rapida` (e a promoção não se aplica):**
 - Devolva o fio conciso: onde paramos + próximo passo exato + pendências.
 - **NÃO valide estado vivo** — nada de `netstat`, `git diff`, env, restart, gate.
 - Feche, **literalmente**, com:
 
-> PRONTO E OPERANTE THIAGO!
+> PRONTO E OPERANTE!
 
 **Se `verificada` (ou promovida):**
 - Leia com atenção o "Caveat de estado vivo" e as "Refs — arquivo:linha".
@@ -113,7 +115,7 @@ Quando voltar (usuário pede "retomar", "voltar para o handover"):
 - Se há divergência que afeta a integridade (ex.: backend sem o patch antes de um gate), **proponha corrigir primeiro** (restart, setar env, aplicar diff) em vez de seguir cego.
 - Só então feche com:
 
-> PRONTO E OPERANTE THIAGO!
+> PRONTO E OPERANTE!
 
 ## O que esta skill NÃO é
 
