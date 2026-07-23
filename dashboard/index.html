@@ -111,23 +111,20 @@
         <input id="fx" type="number" min="0" step="0.01" value="5.40">
         <small>ajuste ao câmbio do dia</small>
       </label>
-      <label class="ctrl">Custo de retomar (tokens)
-        <input id="retomada" type="number" min="0" step="500" value="19500">
-        <small>o que você re-paga ao retomar</small>
-      </label>
     </div>
+    <p class="note" style="margin:10px 0 0">Só dois ajustes — o resto vem <b>do log</b> (conversa, baseline, modelo). Você não preenche mais nada.</p>
   </div>
 
   <div id="content"><div class="empty">Nenhum dado carregado ainda.</div></div>
 
   <div class="foot card" style="margin-top:22px">
-    <b>Como a economia é calculada (sem overclaim).</b>
+    <b>Como a economia é calculada (tudo do log, nada preenchido à mão).</b>
     <ul>
-      <li><b>Tokens lidos</b> = soma do <i>pico de crescimento</i> de cada sessão (o quanto de conversa você arrastaria se nunca desse <code>/clear</code>+handover).</li>
-      <li><b>Economia (tokens)</b> = por sessão, <code>pico − custo de retomar</code> (nunca negativo). O <i>baseline</i> (system+tools+memória) é pago dos dois jeitos, então <b>não</b> entra como economia.</li>
-      <li><b>R$</b> = tokens × (preço <b>input</b> USD/1M do modelo) × câmbio. Preços da tabela oficial da API (Opus US$5, Sonnet US$3, Haiku US$1, Fable US$10 por 1M input); o modelo é auto-detectado do log e o câmbio é seu.</li>
-      <li>⚠️ Contexto re-arrastado é re-lido como <b>input</b> — por isso o preço de input. Mas re-leitura costuma cair no <b>cache</b> (~0,1× do input), então o R$ aqui é um <b>teto</b> (pior caso, sem cache).</li>
-      <li>Números de <b>uma máquina</b>, do seu próprio log — não é promessa, é medição.</li>
+      <li>O log de nudge grava, por sessão: <code>growth</code> = <b>Messages</b> (a conversa) e <code>baseline</code> = <b>piso fixo</b> (system+tools+memória+CLAUDE.md). <code>total = baseline + growth</code>.</li>
+      <li><b>Economia = Messages (growth)</b> — a conversa que você deixa de arrastar ao dar <code>/handover</code>+<code>/clear</code>. O <b>baseline é pago dos dois jeitos</b> (é o piso, = o "custo de retomar"), então <b>não</b> entra como economia. Nada de número inventado.</li>
+      <li><b>Pie "onde vai a janela"</b>: Messages vs Fixo(baseline), somando todas as sessões — direto do log. O log junta memória+CLAUDE.md+tools num só baseline, então "Fixo" é um bloco só.</li>
+      <li><b>R$</b> = Messages × (preço <b>input</b> USD/1M do modelo) × câmbio. Tabela oficial (Opus US$5 / Sonnet US$3 / Haiku US$1 / Fable US$10). O seletor de modelo é uma alavanca "e se fosse tal modelo?"; o câmbio é seu.</li>
+      <li>⚠️ Contexto re-arrastado é re-lido como <b>input</b> — mas re-leitura cai no <b>cache</b> (~0,1×), então o R$ é um <b>teto</b> (pior caso, sem cache).</li>
     </ul>
   </div>
 </div>
@@ -181,22 +178,29 @@ function splitCSV(line){
 }
 function normalize(raw){
   // aceita chaves do nudge log OU nomes equivalentes em CSV
-  return raw.map(r=>({
-    session_id: r.session_id ?? r.session ?? r.sid ?? '—',
-    growth: +(r.growth ?? r.crescimento ?? r.tokens ?? 0) || 0,
-    total: +(r.total ?? r.window ?? 0) || 0,
-    ts: +(r.ts ?? r.timestamp ?? 0) || 0,
-    model: r.model ?? r.modelo ?? ''
-  })).filter(r=>r.growth>0);
+  return raw.map(r=>{
+    const growth=+(r.growth ?? r.crescimento ?? r.tokens ?? 0) || 0;
+    const total=+(r.total ?? r.window ?? 0) || 0;
+    let base=+(r.baseline ?? 0) || 0;
+    // baseline = total − conversa, MAS só se o total for plausível. Janela máx real ~1M;
+    // total absurdo (ex.: Hermes grava total cumulativo de 4.5M) → baseline desconhecido (0).
+    if(!base && total && growth && total < 1200000) base=Math.max(0,total-growth);
+    if(base > 1200000) base=0;
+    return {
+      session_id: r.session_id ?? r.session ?? r.sid ?? '—',
+      growth, total, baseline: base,
+      ts: +(r.ts ?? r.timestamp ?? 0) || 0,
+      model: r.model ?? r.modelo ?? ''
+    };
+  }).filter(r=>r.growth>0);
 }
 
 // ---------- aggregation ----------
 function bySession(records){
   const m=new Map();
   for(const r of records){
-    const g=m.get(r.session_id) || {id:r.session_id, peak:0, total:0, model:r.model, ts:r.ts, hits:0};
-    g.peak=Math.max(g.peak,r.growth);
-    g.total=Math.max(g.total,r.total);
+    const g=m.get(r.session_id) || {id:r.session_id, peak:0, total:0, base:0, model:r.model, ts:r.ts, hits:0};
+    if(r.growth>=g.peak){ g.peak=r.growth; g.total=Math.max(g.total,r.total); if(r.baseline) g.base=r.baseline; }
     g.model=r.model||g.model; g.ts=Math.max(g.ts,r.ts); g.hits++;
     m.set(r.session_id,g);
   }
@@ -206,79 +210,108 @@ function bySession(records){
 // ---------- render ----------
 function render(){
   const fx=+$('#fx').value||0;
-  const defUSD=+$('#model').value||0;
-  const reto=+$('#retomada').value||0;
-  const perMFor=m=>usdForModel(m,defUSD)/1e6*fx;  // R$ por token, por modelo da sessão
+  const usd=+$('#model').value||0;     // o seletor MANDA — alavanca "e se fosse tal modelo?"
+  const perM=usd/1e6*fx;               // R$ por token (mesmo p/ todas as sessões)
+  const perMFor=()=>perM;              // tabela usa o mesmo preço; modelo REAL fica na coluna
   const sessions=bySession(RECORDS);
   const content=$('#content');
   if(!sessions.length){ content.innerHTML='<div class="empty">Nenhum evento válido no arquivo.</div>'; return; }
 
-  let totalRead=0, savedTok=0, costNo=0, savedR=0;
-  for(const s of sessions){
-    const perM=perMFor(s.model);
-    const sav=Math.max(0,s.peak-reto);
-    totalRead+=s.peak; savedTok+=sav; costNo+=s.peak*perM; savedR+=sav*perM;
-  }
+  // Tudo do LOG: growth = Messages (a conversa), baseline = piso fixo (system+tools+memória+CLAUDE.md).
+  // Economia = a CONVERSA que você deixa de arrastar ao dar /handover+/clear. O baseline é pago
+  // dos dois jeitos (piso), então NÃO é economia — e é justamente o "custo de retomar" do log.
+  let sumMsg=0, sumBase=0, nBase=0;
+  for(const s of sessions){ sumMsg+=s.peak; if(s.base>0){ sumBase+=s.base; nBase++; } }
+  const avgBase = nBase ? Math.round(sumBase/nBase) : 0;
+  const savedR = sumMsg*perM;
 
   content.innerHTML = `
     <div class="kpis">
       <div class="tile"><div class="lbl">📁 Sessões</div><div class="val">${fmt(sessions.length)}</div></div>
-      <div class="tile"><div class="lbl">📖 Tokens lidos <span class="note">(pico Σ)</span></div><div class="val">${fmt(totalRead)}</div></div>
-      <div class="tile good"><div class="lbl">✂️ Economia (tokens)</div><div class="val">${fmt(savedTok)}</div></div>
-      <div class="tile"><div class="lbl">💸 Custo sem O(1)mem</div><div class="val">${brl(costNo)}</div></div>
+      <div class="tile good"><div class="lbl">✂️ Conversa evitada <span class="note">(Messages Σ)</span></div><div class="val">${fmt(sumMsg)}</div></div>
+      <div class="tile"><div class="lbl">🧱 Baseline médio <span class="note">(piso pago sempre)</span></div><div class="val">${fmt(avgBase)}</div></div>
       <div class="tile good"><div class="lbl">💰 Economia (R$)</div><div class="val">${brl(savedR)}</div></div>
     </div>
-    <h2>Crescimento por sessão <span class="note">— pico de conversa; linha = custo de retomar</span></h2>
-    <div class="chartwrap" id="chart"></div>
+    <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+      <div style="flex:0 0 auto">
+        <h2>Onde vai a janela <span class="note">— soma, 100% do log</span></h2>
+        <div id="pie"></div>
+      </div>
+      <div style="flex:1 1 360px;min-width:0">
+        <h2>Conversa por sessão <span class="note">— Messages evitados</span></h2>
+        <div class="chartwrap" id="chart"></div>
+      </div>
+    </div>
     <button class="toggle" id="tblBtn">ver tabela</button>
     <div id="tbl" class="hidden"></div>
   `;
-  drawChart(sessions, reto);
-  buildTable(sessions, reto, perMFor);
+  drawPie([
+    {label:'Messages (a conversa — economizável)', val:sumMsg, color:'var(--series)'},
+    {label:'Fixo: baseline (memória + CLAUDE.md + tools)', val:sumBase, color:'var(--muted)'}
+  ]);
+  drawChart(sessions);
+  buildTable(sessions, perMFor);
   $('#tblBtn').onclick=()=>{const t=$('#tbl');t.classList.toggle('hidden');
     $('#tblBtn').textContent=t.classList.contains('hidden')?'ver tabela':'ocultar tabela';};
 }
 
-function drawChart(sessions, reto){
+function drawPie(slices){
+  const tot=slices.reduce((a,s)=>a+s.val,0)||1;
+  const cx=90, cy=90, r=78; let a0=-Math.PI/2, arcs='';
+  slices.forEach(s=>{
+    const frac=s.val/tot, a1=a0+frac*2*Math.PI;
+    const big=frac>0.5?1:0;
+    const x0=cx+r*Math.cos(a0), y0=cy+r*Math.sin(a0);
+    const x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
+    // fatia cheia (donut leve via furo)
+    arcs+=`<path d="M${cx} ${cy} L${x0.toFixed(1)} ${y0.toFixed(1)} A${r} ${r} 0 ${big} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`;
+    a0=a1;
+  });
+  const leg=slices.map(s=>`<div style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:13px">
+    <span style="width:12px;height:12px;border-radius:3px;background:${s.color};flex:none"></span>
+    <b style="font-variant-numeric:tabular-nums">${(s.val/tot*100).toFixed(1)}%</b>
+    <span style="color:var(--ink2)">${s.label} — ${fmt(s.val)} tok</span></div>`).join('');
+  $('#pie').innerHTML=`<div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap">
+    <svg width="180" height="180" viewBox="0 0 180 180" role="img" aria-label="Composição da janela">${arcs}<circle cx="90" cy="90" r="34" fill="var(--surface)"/></svg>
+    <div>${leg}</div></div>`;
+}
+
+function drawChart(sessions){
   const n=sessions.length;
   const barW=34, gap=14, padL=52, padR=16, padT=16, padB=46;
   const W=Math.max(620, padL+padR+n*(barW+gap));
   const H=300, plotH=H-padT-padB;
-  const maxV=Math.max(...sessions.map(s=>s.peak), reto)*1.12 || 1;
+  const maxV=Math.max(...sessions.map(s=>s.peak))*1.12 || 1;
   const y=v=>padT+plotH-(v/maxV)*plotH;
   const ticks=4;
   let g='';
   for(let i=0;i<=ticks;i++){const v=maxV*i/ticks; const yy=y(v);
     g+=`<line class="grid-line" x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}"/>`;
     g+=`<text class="axis-lbl" x="${padL-8}" y="${yy+3}" text-anchor="end">${fmtK(v)}</text>`;}
-  // threshold (retomada) line
-  const yR=y(reto);
-  g+=`<line class="thr-line" x1="${padL}" y1="${yR}" x2="${W-padR}" y2="${yR}"/>`;
-  g+=`<text class="thr-lbl" x="${W-padR}" y="${yR-4}" text-anchor="end">retomar ${fmtK(reto)}</text>`;
-  // bars
+  // bars — altura = Messages (conversa) da sessão
   sessions.forEach((s,i)=>{
     const x=padL+i*(barW+gap)+gap/2;
     const yy=y(s.peak), h=padT+plotH-yy;
     g+=`<rect class="bar" x="${x}" y="${yy}" width="${barW}" height="${h}" rx="4"
-        data-id="${s.id}" data-peak="${s.peak}" data-saved="${Math.max(0,s.peak-reto)}" data-hits="${s.hits}"></rect>`;
+        data-id="${s.id}" data-peak="${s.peak}" data-base="${s.base||0}" data-hits="${s.hits}"></rect>`;
     g+=`<text class="axis-lbl" x="${x+barW/2}" y="${H-padB+16}" text-anchor="middle">${s.id.slice(0,6)}</text>`;
   });
   g+=`<line class="base-line" x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}"/>`;
-  $('#chart').innerHTML=`<svg width="${W}" height="${H}" role="img" aria-label="Crescimento por sessão">${g}</svg>`;
+  $('#chart').innerHTML=`<svg width="${W}" height="${H}" role="img" aria-label="Conversa por sessão">${g}</svg>`;
   // hover
   const tip=$('#tip');
   $('#chart').querySelectorAll('.bar').forEach(b=>{
     b.addEventListener('mousemove',e=>{
-      tip.innerHTML=`<b>${b.dataset.id.slice(0,8)}</b> · ${b.dataset.hits} aviso(s)<br>pico ${fmt(+b.dataset.peak)} tok · economia ${fmt(+b.dataset.saved)}`;
+      tip.innerHTML=`<b>${b.dataset.id.slice(0,8)}</b> · ${b.dataset.hits} aviso(s)<br>Messages ${fmt(+b.dataset.peak)} · baseline ${fmt(+b.dataset.base)}`;
       tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY-10)+'px'; tip.style.opacity=1;});
     b.addEventListener('mouseleave',()=>tip.style.opacity=0);
   });
 }
 
-function buildTable(sessions, reto, perMFor){
-  let rows=sessions.map(s=>{const sav=Math.max(0,s.peak-reto);
-    return `<tr><td>${s.id.slice(0,8)}</td><td>${fmt(s.peak)}</td><td>${fmt(sav)}</td><td>${brl(sav*perMFor(s.model))}</td><td>${s.model||'—'}</td></tr>`;}).join('');
-  $('#tbl').innerHTML=`<table><thead><tr><th>Sessão</th><th>Pico (tok)</th><th>Economia (tok)</th><th>Economia (R$)</th><th>Modelo</th></tr></thead><tbody>${rows}</tbody></table>`;
+function buildTable(sessions, perMFor){
+  let rows=sessions.map(s=>
+    `<tr><td>${s.id.slice(0,8)}</td><td>${fmt(s.peak)}</td><td>${fmt(s.base||0)}</td><td>${brl(s.peak*perMFor(s.model))}</td><td>${s.model||'—'}</td></tr>`).join('');
+  $('#tbl').innerHTML=`<table><thead><tr><th>Sessão</th><th>Messages (tok)</th><th>Baseline (tok)</th><th>Economia (R$)</th><th>Modelo</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ---------- input wiring ----------
@@ -299,7 +332,6 @@ drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0]; if(!f)return;
   const r=new FileReader(); r.onload=()=>ingest(r.result,f.name); r.readAsText(f);});
 $('#model').onchange=()=>RECORDS.length&&render();
 $('#fx').oninput=()=>RECORDS.length&&render();
-$('#retomada').oninput=()=>RECORDS.length&&render();
 
 // demo data (2 sessões reais do log de exemplo)
 $('#demo').onclick=e=>{e.preventDefault();
@@ -311,6 +343,18 @@ $('#demo').onclick=e=>{e.preventDefault();
   ];
   RECORDS=normalize(demo); render();
 };
+
+// AUTO-CARGA: se o launcher (abrir_dashboard.py) injetou window.__O1MEM_DATA__,
+// renderiza na hora e esconde a área de upload — sem enviar arquivo na mão.
+if (Array.isArray(window.__O1MEM_DATA__) && window.__O1MEM_DATA__.length){
+  RECORDS = normalize(window.__O1MEM_DATA__);
+  // pré-seleciona o modelo pelo que o log diz (default honesto; usuário troca à vontade)
+  const m=(RECORDS.find(r=>r.model)||{}).model||'';
+  const usd=usdForModel(m,0);
+  if(usd){ const sel=$('#model'); if(sel) sel.value=String(usd); }
+  render();
+  const d=$('#drop'); if(d) d.style.display='none';
+}
 </script>
 </body>
 </html>

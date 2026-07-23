@@ -148,6 +148,26 @@ O ciclo inteiro medido no painel *Context usage* do Claude Code — os três mom
 
 ---
 
+## 📈 `dashboard` — a evidência acima, mas da **sua** calibragem
+
+A tabela ali de cima é de *uma* sessão minha. O painel em [`dashboard/`](dashboard/) transforma o seu próprio `handover-nudge.log` (JSONL que o hook grava a cada aviso) nesses mesmos números — sem preencher nada à mão.
+
+```bash
+python dashboard/abrir_dashboard.py
+```
+
+O launcher acha os logs (`~/.claude/handover-nudge.log` e, se você roda no Hermes, `~/AppData/Local/hermes/handover-nudge.log`), embute os dados na página e abre no browser. Sem servidor, sem upload — `dashboard/index.html` também abre sozinho e aceita arrastar um log/CSV, para compartilhar.
+
+O que ele mostra, direto do log:
+
+- **Economia = `Messages`** (a conversa que você deixa de arrastar) por sessão — nunca um número inventado. O `baseline` (piso: system+tools+memória+CLAUDE.md) é o **custo de retomar**, pago dos dois jeitos, então **não** entra como economia.
+- **Pizza "onde vai a janela"** — Messages vs. Fixo (na minha calibragem real, ≈ **89% / 11%**): a prova visual de que o que incha é a conversa, não o piso.
+- **R$ (teto)** — usa o *pricing real da API* (Opus \$5 / Sonnet \$3 / Haiku \$1 / Fable \$10 por 1M), auto-detectado do campo `model`, com câmbio USD→BRL editável. Rotulado **teto** porque a re-leitura cai no cache (~0,1×).
+
+> É a mesma honestidade do resto do repo: o painel só desenha o que o log tem. Sem log ainda? Rode algumas sessões com o hook ativo e ele se preenche.
+
+---
+
 ## 🚀 Como usar
 
 Estrutura do repositório:
